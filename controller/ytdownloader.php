@@ -89,148 +89,35 @@ class YTDownloader extends Controller
 
       /**
        * @NoAdminRequired
-       * @NoCSRFRequired
+       *
+       * @param string $FILE
+       * @param array $OPTIONS
        */
-    public function add()
+    //TODO make vars lowercase
+    public function add($FILE, $OPTIONS)
     {
         \OCP\JSON::setContentTypeHeader('application/json');
-
-        if (isset($_POST['FILE']) && strlen($_POST['FILE']) > 0
-              && Tools::checkURL($_POST['FILE']) && isset($_POST['OPTIONS'])) {
+        if (!empty($FILE) && Tools::checkURL($FILE) && !empty($OPTIONS)) {
             try {
                 if (!$this->AllowProtocolYT && !\OC_User::isAdminUser($this->CurrentUID)) {
                     throw new \Exception((string)$this->L10N->t('You are not allowed to use the YouTube protocol'));
                 }
 
-                $YouTube = new YouTube($this->YTDLBinary, $_POST['FILE']);
+                $youTube = $this->getYouTube($FILE);
 
-                if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
-                    $YouTube->SetProxy($this->ProxyAddress, $this->ProxyPort);
-                }
+                $ExtractAudio=(isset($options['YTExtractAudio'])
+                     && strcmp($options['YTExtractAudio'], 'true') == 0);
 
-                if (isset($_POST['OPTIONS']['YTForceIPv4']) && strcmp($_POST['OPTIONS']['YTForceIPv4'], 'false') == 0) {
-                    $YouTube->SetForceIPv4(false);
-                }
-
-                // Extract Audio YES
-                if (isset($_POST['OPTIONS']['YTExtractAudio'])
-                && strcmp($_POST['OPTIONS']['YTExtractAudio'], 'true') == 0) {
-                    $VideoData = $YouTube->getVideoData(true);
-                    if (!isset($VideoData['AUDIO']) || !isset($VideoData['FULLNAME'])) {
-                        return new JSONResponse(array(
-                              'ERROR' => true,
-                              'MESSAGE' =>(string)$this->L10N->t('Unable to retrieve true YouTube audio URL')
-                        ));
+                if (!empty($OPTIONS['YTWholePlayList']) || strpos($FILE, '/playlist?')) {
+                    if ($playlist=$youTube->getPlaylist($ExtractAudio)) {
+                        foreach ($playlist as $item) {
+                            $result=$this->downloadVideo($item, $ExtractAudio);
+                        }
+                        return new JSONResponse(array('ERROR' => $result->ERROR, 'MESSAGE' => $result->MESSAGE));
                     }
-                    $DL = array(
-                        'URL' => $VideoData['AUDIO'],
-                        'FILENAME' => Tools::cleanString($VideoData['FULLNAME']),
-                        'TYPE' => 'YT Audio'
-                    );
-                } else // No audio extract
-                {
-                    $VideoData = $YouTube->getVideoData();
-                    if (!isset($VideoData['VIDEO']) || !isset($VideoData['FULLNAME'])) {
-                        return new JSONResponse(array(
-                              'ERROR' => true,
-                              'MESSAGE' =>(string)$this->L10N->t('Unable to retrieve true YouTube video URL')
-                        ));
-                    }
-                    $DL = array(
-                        'URL' => $VideoData['VIDEO'],
-                        'FILENAME' => Tools::cleanString($VideoData['FULLNAME']),
-                        'TYPE' => 'YT Video'
-                    );
-                }
-
-                // If target file exists, create a new one
-                if (\OC\Files\Filesystem::file_exists($this->DownloadsFolder . '/' . $DL['FILENAME'])) {
-                    $DL['FILENAME'] = time() . '_' . $DL['FILENAME'];
-                }
-
-                // Create the target file if the downloader is ARIA2
-                if ($this->WhichDownloader == 0) {
-                    \OC\Files\Filesystem::touch($this->DownloadsFolder . '/' . $DL['FILENAME']);
                 } else {
-                    if (!\OC\Files\Filesystem::is_dir($this->DownloadsFolder)) {
-                        \OC\Files\Filesystem::mkdir($this->DownloadsFolder);
-                    }
-                }
-
-                $OPTIONS = array('dir' => $this->AbsoluteDownloadsFolder, 'out' => $DL['FILENAME']);
-                if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
-                    $OPTIONS['all-proxy'] = rtrim($this->ProxyAddress, '/') . ':' . $this->ProxyPort;
-                    if (!is_null($this->ProxyUser) && !is_null($this->ProxyPasswd)) {
-                        $OPTIONS['all-proxy-user'] = $this->ProxyUser;
-                        $OPTIONS['all-proxy-passwd'] = $this->ProxyPasswd;
-                    }
-                }
-                if (!is_null($this->MaxDownloadSpeed) && $this->MaxDownloadSpeed > 0) {
-                    $OPTIONS['max-download-limit'] = $this->MaxDownloadSpeed . 'K';
-                }
-
-                $AddURI =($this->WhichDownloader == 0
-                ?Aria2::addUri(array($DL['URL']), array('Params' => $OPTIONS))
-                :CURL::addUri($DL['URL'], $OPTIONS));
-
-                if (isset($AddURI['result']) && !is_null($AddURI['result'])) {
-                    $SQL = 'INSERT INTO `*PREFIX*ocdownloader_queue`
-                    (`UID`, `GID`, `FILENAME`, `PROTOCOL`, `STATUS`, `TIMESTAMP`)
-                    VALUES(?, ?, ?, ?, ?, ?)';
-
-                    if ($this->DbType == 1) {
-                        $SQL = 'INSERT INTO *PREFIX*ocdownloader_queue
-                        ("UID", "GID", "FILENAME", "PROTOCOL", "STATUS", "TIMESTAMP")
-                        VALUES(?, ?, ?, ?, ?, ?)';
-                    }
-
-                    $Query = \OCP\DB::prepare($SQL);
-                    $Result = $Query->execute(array(
-                          $this->CurrentUID,
-                          $AddURI['result'],
-                          $DL['FILENAME'],
-                          $DL['TYPE'],
-                          1,
-                          time()
-                    ));
-
-                    sleep(1);
-                    $Status = Aria2::tellStatus($AddURI['result']);
-
-                    $Progress = 0;
-                    if ($Status['result']['totalLength'] > 0) {
-                        $Progress = $Status['result']['completedLength'] / $Status['result']['totalLength'];
-                    }
-
-                    $ProgressString = Tools::getProgressString(
-                        $Status['result']['completedLength'],
-                        $Status['result']['totalLength'],
-                        $Progress
-                    );
-
-                    return new JSONResponse(array(
-                          'ERROR' => false,
-                          'MESSAGE' =>(string)$this->L10N->t('Download started'),
-                          'GID' => $AddURI['result'],
-                          'PROGRESSVAL' => round((($Progress) * 100), 2) . '%',
-                          'PROGRESS' => is_null($ProgressString) ?(string)$this->L10N->t('N/A') : $ProgressString,
-                          'STATUS' => isset($Status['result']['status'])
-                          ?(string)$this->L10N->t(ucfirst($Status['result']['status']))
-                          :(string)$this->L10N->t('N/A'),
-                          'STATUSID' => Tools::getDownloadStatusID($Status['result']['status']),
-                          'SPEED' => isset($Status['result']['downloadSpeed'])
-                          ?Tools::formatSizeUnits($Status['result']['downloadSpeed'])
-                          .'/s' :(string)$this->L10N->t('N/A'),
-                          'FILENAME' =>$DL['FILENAME'],
-                          'FILENAME_SHORT' => Tools::getShortFilename($DL['FILENAME']),
-                          'PROTO' => $DL['TYPE'],
-                          'ISTORRENT' => false
-                    ));
-                } else {
-                    return new JSONResponse(array(
-                          'ERROR' => true,
-                          'MESSAGE' =>(string)$this->L10N->t('Returned GID is null ! Is Aria2c running as a daemon ?')
-                    ));
+                    $data = $youTube->getVideoData($ExtractAudio);
+                    return $this->downloadVideo($data, $ExtractAudio);
                 }
             } catch (Exception $E) {
                 return new JSONResponse(array('ERROR' => true, 'MESSAGE' => $E->getMessage()));
@@ -243,5 +130,146 @@ class YTDownloader extends Controller
                 )
             );
         }
+    }
+
+    private function downloadVideo($data, $ExtractAudio = false)
+    {
+        if (!isset($data['FULLNAME'])) {
+            return new JSONResponse(array(
+                        'ERROR' => true,
+                        'MESSAGE' =>(string)$this->L10N->t('Unable to retrieve YouTube filename')
+                ));
+        }
+
+        // Extract Audio YES
+        if ($ExtractAudio) {
+            if (!isset($data['AUDIO'])) {
+                return new JSONResponse(array(
+                        'ERROR' => true,
+                        'MESSAGE' =>(string)$this->L10N->t('Unable to retrieve true YouTube audio URL')
+                ));
+            }
+            $DL = array(
+                'URL' => $data['AUDIO'],
+                'FILENAME' => Tools::cleanString($data['FULLNAME']),
+                'TYPE' => 'YT Audio'
+            );
+        } else {// No audio extract
+            if (!isset($data['VIDEO']) || !isset($data['FULLNAME'])) {
+                return new JSONResponse(array(
+                        'ERROR' => true,
+                        'MESSAGE' =>(string)$this->L10N->t('Unable to retrieve true YouTube video URL')
+                ));
+            }
+            $DL = array(
+                'URL' => $data['VIDEO'],
+                'FILENAME' => Tools::cleanString($data['FULLNAME']),
+                'TYPE' => 'YT Video'
+            );
+        }
+
+        // If target file exists, create a new one
+        if (\OC\Files\Filesystem::file_exists($this->DownloadsFolder . '/' . $DL['FILENAME'])) {
+            $DL['FILENAME'] = time() . '_' . $DL['FILENAME'];
+        }
+
+        // Create the target file if the downloader is ARIA2
+        if ($this->WhichDownloader == 0) {
+            \OC\Files\Filesystem::touch($this->DownloadsFolder . '/' . $DL['FILENAME']);
+        } else {
+            if (!\OC\Files\Filesystem::is_dir($this->DownloadsFolder)) {
+                \OC\Files\Filesystem::mkdir($this->DownloadsFolder);
+            }
+        }
+
+        $OPTIONS = array('dir' => $this->AbsoluteDownloadsFolder, 'out' => $DL['FILENAME']);
+        if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
+            $OPTIONS['all-proxy'] = rtrim($this->ProxyAddress, '/') . ':' . $this->ProxyPort;
+            if (!is_null($this->ProxyUser) && !is_null($this->ProxyPasswd)) {
+                $OPTIONS['all-proxy-user'] = $this->ProxyUser;
+                $OPTIONS['all-proxy-passwd'] = $this->ProxyPasswd;
+            }
+        }
+        if (!is_null($this->MaxDownloadSpeed) && $this->MaxDownloadSpeed > 0) {
+            $OPTIONS['max-download-limit'] = $this->MaxDownloadSpeed . 'K';
+        }
+
+        $AddURI =($this->WhichDownloader == 0
+        ?Aria2::addUri(array($DL['URL']), array('Params' => $OPTIONS))
+        :CURL::addUri($DL['URL'], $OPTIONS));
+
+        if (isset($AddURI['result']) && !is_null($AddURI['result'])) {
+            $SQL = 'INSERT INTO `*PREFIX*ocdownloader_queue`
+            (`UID`, `GID`, `FILENAME`, `PROTOCOL`, `STATUS`, `TIMESTAMP`)
+            VALUES(?, ?, ?, ?, ?, ?)';
+
+            if ($this->DbType == 1) {
+                $SQL = 'INSERT INTO *PREFIX*ocdownloader_queue
+                ("UID", "GID", "FILENAME", "PROTOCOL", "STATUS", "TIMESTAMP")
+                VALUES(?, ?, ?, ?, ?, ?)';
+            }
+
+            $Query = \OCP\DB::prepare($SQL);
+            $Result = $Query->execute(array(
+                    $this->CurrentUID,
+                    $AddURI['result'],
+                    $DL['FILENAME'],
+                    $DL['TYPE'],
+                    1,
+                    time()
+            ));
+
+            sleep(1);
+            $Status = Aria2::tellStatus($AddURI['result']);
+
+            $Progress = 0;
+            if ($Status['result']['totalLength'] > 0) {
+                $Progress = $Status['result']['completedLength'] / $Status['result']['totalLength'];
+            }
+
+            $ProgressString = Tools::getProgressString(
+                $Status['result']['completedLength'],
+                $Status['result']['totalLength'],
+                $Progress
+            );
+
+            return new JSONResponse(array(
+                    'ERROR' => false,
+                    'MESSAGE' =>(string)$this->L10N->t('Download started'),
+                    'GID' => $AddURI['result'],
+                    'PROGRESSVAL' => round((($Progress) * 100), 2) . '%',
+                    'PROGRESS' => is_null($ProgressString) ?(string)$this->L10N->t('N/A') : $ProgressString,
+                    'STATUS' => isset($Status['result']['status'])
+                    ?(string)$this->L10N->t(ucfirst($Status['result']['status']))
+                    :(string)$this->L10N->t('N/A'),
+                    'STATUSID' => Tools::getDownloadStatusID($Status['result']['status']),
+                    'SPEED' => isset($Status['result']['downloadSpeed'])
+                    ?Tools::formatSizeUnits($Status['result']['downloadSpeed'])
+                    .'/s' :(string)$this->L10N->t('N/A'),
+                    'FILENAME' =>$DL['FILENAME'],
+                    'FILENAME_SHORT' => Tools::getShortFilename($DL['FILENAME']),
+                    'PROTO' => $DL['TYPE'],
+                    'ISTORRENT' => false
+            ));
+        } else {
+            return new JSONResponse(array(
+                    'ERROR' => true,
+                    'MESSAGE' =>(string)$this->L10N->t('Returned GID is null ! Is Aria2c running as a daemon ?')
+            ));
+        }
+    }
+
+    protected function getYouTube($url)
+    {
+        $youTube = new YouTube($this->YTDLBinary, $url);
+
+        if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
+            $youTube->SetProxy($this->ProxyAddress, $this->ProxyPort);
+        }
+
+        if (isset($options['YTForceIPv4']) && strcmp($options['YTForceIPv4'], 'false') == 0) {
+            $youTube->SetForceIPv4(false);
+        }
+        return $youTube;
     }
 }

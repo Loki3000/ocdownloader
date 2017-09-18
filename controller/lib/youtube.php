@@ -19,75 +19,90 @@ class YouTube
     private $ProxyAddress = null;
     private $ProxyPort = 0;
 
+    private $shellProxy='';
+    private $shellIPV4='';
+
     public function __construct($YTDLBinary, $URL)
     {
         $this->YTDLBinary = $YTDLBinary;
         $this->URL = $URL;
+        //youtube multibyte support
+        putenv('LANG=en_US.UTF-8');
     }
 
     public function setForceIPv4($ForceIPv4)
     {
         $this->ForceIPv4 = $ForceIPv4;
+        $this->shellIPV4=$this->ForceIPv4?' -4':'';
     }
 
     public function setProxy($ProxyAddress, $ProxyPort)
     {
         $this->ProxyAddress = $ProxyAddress;
         $this->ProxyPort = $ProxyPort;
+        if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
+            $this->shellProxy = ' --proxy ' . rtrim($this->ProxyAddress, '/')
+            . ':' . $this->ProxyPort;
+        } else {
+            $this->shellProxy="";
+        }
     }
 
     public function getVideoData($ExtractAudio = false)
     {
-        $Proxy = null;
-        if (!is_null($this->ProxyAddress) && $this->ProxyPort > 0 && $this->ProxyPort <= 65536) {
-            $Proxy = ' --proxy ' . rtrim($this->ProxyAddress, '/') . ':' . $this->ProxyPort;
-        }
-
-
-        //youtube multibyte support
-        putenv('LANG=en_US.UTF-8');
-
-        $Output = shell_exec(
-            $this->YTDLBinary.' -i \''.$this->URL.'\' --get-url --get-filename'
-            .($ExtractAudio?' -f bestaudio -x':' -f best').($this->ForceIPv4 ? ' -4' : '')
-            .(is_null($Proxy) ? '' : $Proxy)
+        $output = shell_exec(
+            $this->YTDLBinary.' -i \''.$this->URL.'\' --get-url --get-filename --no-playlist'
+            .($ExtractAudio?' -f bestaudio -x':' -f best')
+            .$this->shellIPV4
+            .$this->shellProxy
         );
 
-        $index=(preg_match('/&index=(\d+)/', $this->URL, $current))?$current[1]:1;
+        return $this->parseOutput(array_shift($output));
+    }
 
-        if (!is_null($Output)) {
-            $Output = explode("\n", $Output);
+    public function getPlaylist($ExtractAudio = false)
+    {
+        $playlist=array();
+        $output = shell_exec(
+            $this->YTDLBinary.' -i \''.$this->URL.'\' --get-url --get-filename'
+            .($ExtractAudio?' -f bestaudio -x':' -f best')
+            .$this->shellIPV4
+            .$this->shellProxy
+        );
 
-            if (count($Output) >= 2) {
-                $OutProcessed = array();
-                $current_index=1;
-                for ($I = 0; $I < count($Output); $I++) {
-                    if (mb_strlen(trim($Output[$I])) > 0) {
-                        if (mb_strpos(urldecode($Output[$I]), 'https://') === 0
-                                && mb_strpos(urldecode($Output[$I]), '&mime=video/') !== false) {
-                            $OutProcessed['VIDEO'] = $Output[$I];
-                        } elseif (mb_strpos(urldecode($Output[$I]), 'https://') === 0
-                                && mb_strpos(urldecode($Output[$I]), '&mime=audio/') !== false) {
-                            $OutProcessed['AUDIO'] = $Output[$I];
+        return $this->parseOutput($output);
+    }
+
+    private function parseOutput($output)
+    {
+        if (!is_null($output)) {
+            $output = explode("\n", $output);
+
+            if (count($output) >= 2) {
+                $result=$OutProcessed = array();
+
+                for ($i = 0; $i < count($output); $i++) {
+                    if (mb_strlen(trim($output[$i])) > 0) {
+                        if (mb_strpos(urldecode($output[$i]), 'https://') === 0
+                                && mb_strpos(urldecode($output[$i]), '&mime=video/') !== false) {
+                            $OutProcessed['VIDEO'] = $output[$i];
+                        } elseif (mb_strpos(urldecode($output[$i]), 'https://') === 0
+                                && mb_strpos(urldecode($output[$i]), '&mime=audio/') !== false) {
+                            $OutProcessed['AUDIO'] = $output[$i];
                         } else {
-                            $OutProcessed['FULLNAME'] = $Output[$I];
+                            $OutProcessed['FULLNAME'] = $output[$i];
                         }
                     }
-                 if ((!empty($OutProcessed['VIDEO']) || !empty($OutProcessed['AUDIO'])) && !empty($OutProcessed['FULLNAME']))
+
+                    if ((!empty($OutProcessed['VIDEO']) || !empty($OutProcessed['AUDIO'])) && !empty($OutProcessed['FULLNAME']))
                     {
-                        if ($index == $current_index)
-                        {
-                            break;
-                        } else {
-                            $OutProcessed = array();
-                            $current_index++;
-                        }
+                        $result[]=$OutProcessed;
+                        $OutProcessed=array();
                     }
                 }
-                return $OutProcessed;
+                return $result;
             }
         }
         return null;
     }
-
 }

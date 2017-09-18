@@ -48,6 +48,7 @@ $(document).ready (function ()
 	$('#option-ftp-pasv').prop ('checked', true);
 	$('#option-yt-extractaudio').prop ('checked', false);
 	$('#option-yt-forceipv4').prop ('checked', true);
+	$('#option-yt-wholeplaylist').prop ('checked', false);
 	$('#option-bt-rmtorrent').prop ('checked', true);
 	
 	// Load torrent files when opening the available torrents list
@@ -114,7 +115,8 @@ $(document).ready (function ()
 			OCDLR.Utils.AddDownload ($(this), 'yt', InputURL.val (),
 			{
 				YTExtractAudio: $('#option-yt-extractaudio').prop ('checked'),
-				YTForceIPv4: $('#option-yt-forceipv4').prop ('checked')
+				YTForceIPv4: $('#option-yt-forceipv4').prop ('checked'),
+				YTWholePlayList: $('#option-yt-wholeplaylist').prop ('checked')
 			});
 		}
 		else
@@ -125,6 +127,7 @@ $(document).ready (function ()
 		InputURL.val ('');
 		$('#option-yt-extractaudio').prop ('checked', false);
 		$('#option-yt-forceipv4').prop ('checked', true);
+		$('#option-yt-wholeplaylist').prop ('checked', false);
 	});
 	
 	// Launch BT download
