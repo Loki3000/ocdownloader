@@ -82,7 +82,6 @@ class YouTube
                 $result=$OutProcessed = array();
 
                 for ($i = 0; $i < count($output); $i++) {
-                    
                     if (mb_strlen(trim($output[$i])) > 0) {
                         $decodedUrl=urldecode($output[$i]);
                         if (strpos($decodedUrl, 'https://') === 0
@@ -96,8 +95,8 @@ class YouTube
                         }
                     }
                     
-                    if ((!empty($OutProcessed['VIDEO']) || !empty($OutProcessed['AUDIO'])) && !empty($OutProcessed['FULLNAME']))
-                    {
+                    if ((!empty($OutProcessed['VIDEO']) || !empty($OutProcessed['AUDIO']))
+                        && !empty($OutProcessed['FULLNAME'])) {
                         $result[]=$OutProcessed;
                         $OutProcessed=array();
                     }
