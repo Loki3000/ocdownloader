@@ -77,23 +77,25 @@ class YouTube
     {
         if (!is_null($output)) {
             $output = explode("\n", $output);
-
+            
             if (count($output) >= 2) {
                 $result=$OutProcessed = array();
 
                 for ($i = 0; $i < count($output); $i++) {
+                    
                     if (mb_strlen(trim($output[$i])) > 0) {
-                        if (mb_strpos(urldecode($output[$i]), 'https://') === 0
-                                && mb_strpos(urldecode($output[$i]), '&mime=video/') !== false) {
+                        $decodedUrl=urldecode($output[$i]);
+                        if (strpos($decodedUrl, 'https://') === 0
+                                && preg_match('#(\?|&)mime=video/#', $decodedUrl)) {
                             $OutProcessed['VIDEO'] = $output[$i];
-                        } elseif (mb_strpos(urldecode($output[$i]), 'https://') === 0
-                                && mb_strpos(urldecode($output[$i]), '&mime=audio/') !== false) {
+                        } elseif (strpos($decodedUrl, 'https://') === 0
+                                && preg_match('#(\?|&)mime=audio/#', $decodedUrl)) {
                             $OutProcessed['AUDIO'] = $output[$i];
                         } else {
                             $OutProcessed['FULLNAME'] = $output[$i];
                         }
                     }
-
+                    
                     if ((!empty($OutProcessed['VIDEO']) || !empty($OutProcessed['AUDIO'])) && !empty($OutProcessed['FULLNAME']))
                     {
                         $result[]=$OutProcessed;

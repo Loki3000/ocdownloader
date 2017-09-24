@@ -113,7 +113,8 @@ class YTDownloader extends Controller
                         foreach ($playlist as $item) {
                             $result=$this->downloadVideo($item, $ExtractAudio);
                         }
-                        return new JSONResponse(array('ERROR' => $result->ERROR, 'MESSAGE' => $result->MESSAGE));
+                        $resultData=$result->getData();
+                        return new JSONResponse(array('ERROR' => $result->ERROR, 'MESSAGE' => $resultData['MESSAGE']));
                     }
                 } else {
                     $data = $youTube->getVideoData($ExtractAudio);
