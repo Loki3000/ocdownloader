@@ -114,7 +114,7 @@ class YTDownloader extends Controller
                             $result=$this->downloadVideo($item, $ExtractAudio);
                         }
                         $resultData=$result->getData();
-                        return new JSONResponse(array('ERROR' => $result->ERROR, 'MESSAGE' => $resultData['MESSAGE']));
+                        return new JSONResponse(array('ERROR' => $resultData['ERROR'], 'MESSAGE' => $resultData['MESSAGE']));
                     }
                 } else {
                     $data = $youTube->getVideoData($ExtractAudio);
